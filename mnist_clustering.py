@@ -12,8 +12,17 @@ data = np.matrix((256*nums.train_x[:limit]).astype(np.float64))
 labels = nums.train_y[:limit]
 k=9
 
+sk = KMeans(init='random', n_clusters=k, n_init=10)
 
-a, c = PKMeans(data, 100, k=k, iters=150)
+t = time.time()
+sk.fit(data)
+print(time.time() - t)
+
+print(sk.n_iter_)
+
+t = time.time()
+a, c = PKMeans(data, 100, k=k, iters=sk.n_iter_)
+print(time.time() - t)
 
 
 for i in range(k):
