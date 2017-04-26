@@ -3,15 +3,17 @@ from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import math
 import random
+import time
 
 
-def initCentroids(k, ctr, std, dim):
-    stdevs = np.random.uniform(0, std, size=dim)
+def initCentroids(k, ctr, spread, dim):
+    l = ctr - spread
+    u = ctr + spread
     dt = []
     for j in range(dim): 
         xs = np.random.normal(
-	    np.random.uniform(-ctr, ctr),
-	    stdevs[j], 
+	    np.random.uniform(l, u),
+	    0.1, 
 	    (1, k)
         )
         dt.append(xs[0])
@@ -40,6 +42,11 @@ def closest(data, assign, centroids, N, k, d):
     """ 
 
     globalId = cuda.threadIdx.x + cuda.blockDim.x*cuda.blockIdx.x
+    sid = cuda.threadIdx.x
+    gid = globalId*d
+    nt = cuda.blockDim.x
+
+    s_centroids = cuda.shared.array(shape=0, dtype=float64)
 
     if globalId >= N:
         return
@@ -48,9 +55,15 @@ def closest(data, assign, centroids, N, k, d):
     ind = -1
 
     for cent_id in range(k):
+	cid = cent_id*(d+1)
+
+	for idd in range(sid, d, nt):
+		s_centroids[idd] = centroids[cid + idd]
+	cuda.syncthreads()
 	dist = 0.
 	for dim in range(d):
-	    shift = data[globalId*d + dim] - centroids[cent_id*(d+1) + dim]
+	    #shift = data[globalId*d + dim] - centroids[cid + dim]
+	    shift = data[gid + dim] - s_centroids[dim]
 	    dist += (shift * shift)
         if ind == -1 or dist < minDist:
             minDist = dist
@@ -58,13 +71,13 @@ def closest(data, assign, centroids, N, k, d):
 
     assign[globalId] = ind
 
-    cuda.syncthreads()
+@cuda.jit('void(float64[:], int32[:], float64[:], uint64, uint64, uint64)')
+def zero(data, assign, centroids, N, k, d):
 
-    #TODO: This is a race condition
-    if globalId < k:
-	tind = globalId * (d+1)
-	for l in range((d+1)):
-    		centroids[tind + l] = 0
+    globalId = cuda.threadIdx.x + cuda.blockDim.x*cuda.blockIdx.x
+
+    if globalId < k*(d+1):
+	centroids[globalId] = 0.
 
 @cuda.jit('void(float64[:], int32[:], float64[:], uint64, uint64, uint64)')
 def update_sum(data, assign, centroids, N, k, d):
@@ -115,10 +128,10 @@ def update_avg(data, assign, centroids, N, k, d):
 	n = 3251.
 	for j in range(d):
 	    n = (n*n / 100) % 10000
-	    #centroids[globalId*(d+1)+j] = n % (101)
-	    centroids[globalId*(d+1)+j] = data[globalId*d+j]
+	    centroids[globalId*(d+1)+j] = n % (10)
+	    #centroids[globalId*(d+1)+j] = data[globalId*d+j]
 
-def PKMeans(dta, ctr, k=8, iters=300, tpb=128, update_t=256, update_b=8):	
+def PKMeans(dta, ctr, k=8, iters=300, tpb=32, update_t=256, update_b=8):	
 
 	N = dta.shape[0]
 	dim = dta.shape[1]
@@ -129,24 +142,59 @@ def PKMeans(dta, ctr, k=8, iters=300, tpb=128, update_t=256, update_b=8):
 	dh = np.squeeze(np.asarray(dta.reshape((1, dta.shape[0]*dta.shape[1]))))
 
 	# Centroid array stored as [[x, y, z, ... , number of points assigned to centroid], ...]
-	ch = initCentroids(k, ctr, 0.25, dim)
+	ch = initCentroids(k, ctr, 1.5, dim)
+	smsize = ch.dtype.itemsize * dim
+	print smsize
 
 	# Store the data cluster assignments as a 1-dimensional array
 	ah = np.zeros(N, dtype=np.int32)
 
+	t1 = time.time()
 	dd = cuda.to_device(dh)
 	cd = cuda.to_device(ch)
 	ad = cuda.to_device(ah)
+	t1 = (time.time() - t1)
 
 	avg_threads = k / 2
+	zero_blocks = (ch.shape[0] / 32) + 1
+
+	ct = 0.
+	zt = 0.
+	ust = 0.
+	uat = 0.
+
 	for i in range(iters):
-		closest[bpg, tpb](dd, ad, cd, N, k, dim)
-		update_sum[update_b, update_t](dd, ad, cd, N, k, dim)
-		update_avg[3, avg_threads](dd, ad, cd, N, k, dim)
+		#t = time.time()
+		closest[bpg, tpb, 0, smsize](dd, ad, cd, N, k, dim)
+		#cuda.synchronize()
+		#ct += (time.time() - t)
+
+		#t = time.time()
+		zero[zero_blocks, 32, 0](dd, ad, cd, N, k, dim)
+		#cuda.synchronize()
+		#zt += (time.time() - t)
+
+		#t = time.time()
+		update_sum[update_b, update_t, 0](dd, ad, cd, N, k, dim)
+		#cuda.synchronize()
+		#ust += (time.time() - t)
+
+		#t = time.time()
+		update_avg[3, avg_threads, 0](dd, ad, cd, N, k, dim)
+		#cuda.synchronize()
+		#uat += (time.time() - t)
 
 	cuda.synchronize()
 
+	t2 = time.time()
 	ad.copy_to_host(ah)
 	cd.copy_to_host(ch)
+	t2 = (time.time() - t2)
+
+	print t1+t2
+
+	#tt = float(ct + zt + ust + uat)
+
+	#print "closest: {}, {}\nzero: {}, {}\nsum: {}, {}\navg: {}, {}\n".format((ct / tt), ct, (zt / tt), zt, (ust / tt), ust, (uat / tt), uat)
 
         return (ah, ch.reshape((k, (dim+1))))

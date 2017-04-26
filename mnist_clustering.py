@@ -6,13 +6,13 @@ import time
 
 nums = Numbers()
 
-limit = 5000
+limit = 50000
 
 data = np.matrix((256*nums.train_x[:limit]).astype(np.float64))
 labels = nums.train_y[:limit]
 k=9
 
-sk = KMeans(init='random', n_clusters=k, n_init=10)
+sk = KMeans(init='random', n_clusters=k, n_init=1)
 
 t = time.time()
 sk.fit(data)
@@ -21,15 +21,17 @@ print(time.time() - t)
 print(sk.n_iter_)
 
 t = time.time()
-a, c = PKMeans(data, 100, k=k, iters=sk.n_iter_)
+a, cl = PKMeans(data, 128, k=k, iters=sk.n_iter_)
+#a, cl = PKMeans(data, 128, k=k, iters=45)
 print(time.time() - t)
-
 
 for i in range(k):
         m = np.where(a == i)
         print "cluster: {}".format(i)
         local = labels[m]
         total = local.shape[0]
+	if not total:
+		continue
 	elems = []
         for j in range(k):
                 mm = np.where(local == j)
@@ -42,7 +44,8 @@ for i in range(k):
         print ""
 
 # For Debugging
-if False:
+if True:
+	c = cl
 	print data.shape[0]
 
 	for i in range(k):

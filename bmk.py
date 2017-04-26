@@ -29,7 +29,7 @@ def get_color():
 KK = 5
 
 
-sk = KMeans(init='k-means++', n_clusters=KK, n_init=10)
+sk = KMeans(init='k-means++', n_clusters=KK, n_init=1)
 
 xs = np.array([])
 ys = np.array([])
@@ -48,7 +48,7 @@ sk.fit(d)
 print(time.time() - s)
 
 start = time.time()
-ah,c = PKMeans(d, 100, k=KK, iters=300)
+ah,c = PKMeans(d, 100, k=KK, iters=150)
 print(time.time() - start)
 
 
@@ -65,6 +65,7 @@ colors = get_color()
 for i in range(KK):
     c = d[np.where(ah == float(i))[0], :]
     col = next(colors)
+    print col
 
     xss = np.squeeze(np.asarray(c[:,0]))
     yss = np.squeeze(np.asarray(c[:,1]))
