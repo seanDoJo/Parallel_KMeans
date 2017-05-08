@@ -22,8 +22,14 @@ print(sk.n_iter_)
 
 t = time.time()
 a, cl = PKMeans(data, 128, k=k, iters=sk.n_iter_)
-#a, cl = PKMeans(data, 128, k=k, iters=45)
+#a, cl = PKMeans(data, 128, k=k, iters=150)
 print(time.time() - t)
+
+t = time.time()
+aa, cll = PKMeans(data, 128, k=k, iters=sk.n_iter_, shared=False)
+#a, cl = PKMeans(data, 128, k=k, iters=150)
+print(time.time() - t)
+exit(0)
 
 for i in range(k):
         m = np.where(a == i)

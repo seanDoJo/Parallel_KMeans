@@ -25,6 +25,45 @@ def initCentroids(k, ctr, spread, dim):
     return flattened
 
 @cuda.jit('void(float64[:], int32[:], float64[:], uint64, uint64, uint64)')
+def closest_ns(data, assign, centroids, N, k, d):
+    """
+    data: The 1-dimensional array of datapoints (a flattened N x d matrix)
+
+    assign: The 1-dimensional array of datapoint assignments (1 x N)
+
+    centroids: The 1-dimensional array of centroid locations (a flattened k x (d+1) matrix)
+
+    N: The number of datapoints
+
+    k: The number of clusters
+
+    d: The dimensionality of the points
+
+    """ 
+
+    globalId = cuda.threadIdx.x + cuda.blockDim.x*cuda.blockIdx.x
+    gid = globalId*d
+
+
+    if globalId >= N:
+        return
+
+    minDist = -1.0
+    ind = -1
+
+    for cent_id in range(k):
+        cid = cent_id*(d+1)
+        dist = 0.
+        for dim in range(d):
+	    shift = data[gid + dim] - centroids[cid + dim]
+	    dist += (shift * shift)
+        if ind == -1 or dist < minDist:
+            minDist = dist
+            ind = cent_id
+
+    assign[globalId] = ind
+
+@cuda.jit('void(float64[:], int32[:], float64[:], uint64, uint64, uint64)')
 def closest(data, assign, centroids, N, k, d):
     """
     data: The 1-dimensional array of datapoints (a flattened N x d matrix)
@@ -55,14 +94,13 @@ def closest(data, assign, centroids, N, k, d):
     ind = -1
 
     for cent_id in range(k):
-	cid = cent_id*(d+1)
+        cid = cent_id*(d+1)
 
-	for idd in range(sid, d, nt):
-		s_centroids[idd] = centroids[cid + idd]
-	cuda.syncthreads()
-	dist = 0.
-	for dim in range(d):
-	    #shift = data[globalId*d + dim] - centroids[cid + dim]
+        for idd in range(sid, d, nt):
+            s_centroids[idd] = centroids[cid + idd]
+        cuda.syncthreads()
+        dist = 0.
+        for dim in range(d):
 	    shift = data[gid + dim] - s_centroids[dim]
 	    dist += (shift * shift)
         if ind == -1 or dist < minDist:
@@ -77,7 +115,7 @@ def zero(data, assign, centroids, N, k, d):
     globalId = cuda.threadIdx.x + cuda.blockDim.x*cuda.blockIdx.x
 
     if globalId < k*(d+1):
-	centroids[globalId] = 0.
+        centroids[globalId] = 0.
 
 @cuda.jit('void(float64[:], int32[:], float64[:], uint64, uint64, uint64)')
 def update_sum(data, assign, centroids, N, k, d):
@@ -100,13 +138,13 @@ def update_sum(data, assign, centroids, N, k, d):
     numThreads = cuda.blockDim.x * cuda.gridDim.x
 	
     for i in range(globalId, N, numThreads):
-	# Sum up each dimension
+        # Sum up each dimension
         cent_id = assign[i]
-	for dim in range(d):
+        for dim in range(d):
 	    cuda.atomic.add(centroids, cent_id*(d+1) + dim, data[i*d + dim])
 
 	# Sum up the number of points belonging to each centroid 
-	cuda.atomic.add(centroids, cent_id*(d+1) + d, 1)
+        cuda.atomic.add(centroids, cent_id*(d+1) + d, 1)
 
 
 @cuda.jit('void(float64[:], int32[:], float64[:], uint64, uint64, uint64)')
@@ -121,80 +159,102 @@ def update_avg(data, assign, centroids, N, k, d):
 
     #TODO: have each thread do this instead of a loop
     if sf >= 1:
-	for j in range(d):
+        for j in range(d):
 	    centroids[globalId*(d+1) + j] /= sf
     else:
 	# Randomly initialize if no points belong to the centroid
-	n = 3251.
-	for j in range(d):
+        n = 3251.
+        for j in range(d):
 	    n = (n*n / 100) % 10000
 	    centroids[globalId*(d+1)+j] = n % (10)
 	    #centroids[globalId*(d+1)+j] = data[globalId*d+j]
 
-def PKMeans(dta, ctr, k=8, iters=300, tpb=32, update_t=256, update_b=8):	
+def PKMeans(dta, ctr, k=8, iters=300, tpb=32, update_t=512, update_b=16, shared=True):
 
-	N = dta.shape[0]
-	dim = dta.shape[1]
+    N = dta.shape[0]
+    dim = dta.shape[1]
 
-	bpg = (N / tpb) + 1
+    bpg = (N / tpb) + 1
 
-	# Store the data as a 1-dimensional array
-	dh = np.squeeze(np.asarray(dta.reshape((1, dta.shape[0]*dta.shape[1]))))
+    # Store the data as a 1-dimensional array
+    dh = np.squeeze(np.asarray(dta.reshape((1, dta.shape[0]*dta.shape[1]))))
 
-	# Centroid array stored as [[x, y, z, ... , number of points assigned to centroid], ...]
-	ch = initCentroids(k, ctr, 1.5, dim)
-	smsize = ch.dtype.itemsize * dim
-	print smsize
+    # Centroid array stored as [[x, y, z, ... , number of points assigned to centroid], ...]
+    ch = initCentroids(k, ctr, 1.5, dim)
+    smsize = ch.dtype.itemsize * dim
+    print smsize
 
-	# Store the data cluster assignments as a 1-dimensional array
-	ah = np.zeros(N, dtype=np.int32)
+    # Store the data cluster assignments as a 1-dimensional array
+    ah = np.zeros(N, dtype=np.int32)
 
-	t1 = time.time()
-	dd = cuda.to_device(dh)
-	cd = cuda.to_device(ch)
-	ad = cuda.to_device(ah)
-	t1 = (time.time() - t1)
+    t1 = time.time()
+    dd = cuda.to_device(dh)
+    cd = cuda.to_device(ch)
+    ad = cuda.to_device(ah)
+    t1 = (time.time() - t1)
 
-	avg_threads = k / 2
-	zero_blocks = (ch.shape[0] / 32) + 1
+    avg_threads = k / 2
+    zero_blocks = (ch.shape[0] / 32) + 1
 
-	ct = 0.
-	zt = 0.
-	ust = 0.
-	uat = 0.
+    ct = 0.
+    zt = 0.
+    ust = 0.
+    uat = 0.
 
-	for i in range(iters):
-		#t = time.time()
-		closest[bpg, tpb, 0, smsize](dd, ad, cd, N, k, dim)
-		#cuda.synchronize()
-		#ct += (time.time() - t)
+    if shared:
+        for i in range(iters):
+            #t = time.time()
+            closest[bpg, tpb, 0, smsize](dd, ad, cd, N, k, dim)
+            #cuda.synchronize()
+            #ct += (time.time() - t)
 
-		#t = time.time()
-		zero[zero_blocks, 32, 0](dd, ad, cd, N, k, dim)
-		#cuda.synchronize()
-		#zt += (time.time() - t)
+            #t = time.time()
+            zero[zero_blocks, 32, 0](dd, ad, cd, N, k, dim)
+            #cuda.synchronize()
+            #zt += (time.time() - t)
 
-		#t = time.time()
-		update_sum[update_b, update_t, 0](dd, ad, cd, N, k, dim)
-		#cuda.synchronize()
-		#ust += (time.time() - t)
+            #t = time.time()
+            update_sum[update_b, update_t, 0](dd, ad, cd, N, k, dim)
+            #cuda.synchronize()
+            #ust += (time.time() - t)
 
-		#t = time.time()
-		update_avg[3, avg_threads, 0](dd, ad, cd, N, k, dim)
-		#cuda.synchronize()
-		#uat += (time.time() - t)
+            #t = time.time()
+            update_avg[3, avg_threads, 0](dd, ad, cd, N, k, dim)
+            #cuda.synchronize()
+            #uat += (time.time() - t)
+    else:
+        for i in range(iters):
+            #t = time.time()
+            closest_ns[bpg, tpb, 0](dd, ad, cd, N, k, dim)
+            #cuda.synchronize()
+            #ct += (time.time() - t)
 
-	cuda.synchronize()
+            #t = time.time()
+            zero[zero_blocks, 32, 0](dd, ad, cd, N, k, dim)
+            #cuda.synchronize()
+            #zt += (time.time() - t)
 
-	t2 = time.time()
-	ad.copy_to_host(ah)
-	cd.copy_to_host(ch)
-	t2 = (time.time() - t2)
+            #t = time.time()
+            update_sum[update_b, update_t, 0](dd, ad, cd, N, k, dim)
+            #cuda.synchronize()
+            #ust += (time.time() - t)
 
-	print t1+t2
+            #t = time.time()
+            update_avg[3, avg_threads, 0](dd, ad, cd, N, k, dim)
+            #cuda.synchronize()
+            #uat += (time.time() - t)
 
-	#tt = float(ct + zt + ust + uat)
+    cuda.synchronize()
 
-	#print "closest: {}, {}\nzero: {}, {}\nsum: {}, {}\navg: {}, {}\n".format((ct / tt), ct, (zt / tt), zt, (ust / tt), ust, (uat / tt), uat)
+    t2 = time.time()
+    ad.copy_to_host(ah)
+    cd.copy_to_host(ch)
+    t2 = (time.time() - t2)
 
-        return (ah, ch.reshape((k, (dim+1))))
+    print t1+t2
+
+    tt = float(ct + zt + ust + uat)
+
+    #print "closest: {}, {}\nzero: {}, {}\nsum: {}, {}\navg: {}, {}\n".format((ct / tt), ct, (zt / tt), zt, (ust / tt), ust, (uat / tt), uat)
+
+    return (ah, ch.reshape((k, (dim+1))))

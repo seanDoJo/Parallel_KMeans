@@ -36,7 +36,7 @@ ys = np.array([])
 zs = np.array([])
 for i in range(KK):
 	# How many points to generate per cluster
-        xs1, ys1, zs1 = generate(500, (i+1)*10, 5)
+        xs1, ys1, zs1 = generate(10000, (i+1)*10, 5)
         xs = np.concatenate((xs, xs1))
         ys = np.concatenate((ys, ys1))
         zs = np.concatenate((zs, zs1))
@@ -48,7 +48,8 @@ sk.fit(d)
 print(time.time() - s)
 
 start = time.time()
-ah,c = PKMeans(d, 100, k=KK, iters=150)
+#ah,c = PKMeans(d, 100, k=KK, iters=150)
+ah,c = PKMeans(d, 100, k=KK, iters=150, shared=True)
 print(time.time() - start)
 
 
