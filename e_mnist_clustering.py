@@ -6,14 +6,16 @@ import time
 
 nums = Numbers()
 
-limit = 1000
+limit = 50000
 
+# Re-assign datapoints from values between [0, 1] to [0, 256]
 data = np.matrix((256*nums.train_x[:limit]).astype(np.float64))
-labels = nums.train_y[:limit]
-k=np.array([9, 9, 9, 9, 9, 9, 9, 9, 9, 9])
-#k=np.array([5, 2])
 
-sk = KMeans(init='random', n_clusters=9, n_init=10)
+labels = nums.train_y[:limit]
+#k=np.array([9, 9, 9, 9, 9, 9, 9, 9, 9, 9])
+k=np.array([9, 9])
+
+sk = KMeans(init='random', n_clusters=9, n_init=2)
 
 t = time.time()
 sk.fit(data)
@@ -25,6 +27,7 @@ t = time.time()
 a, cl = EPKMeans(data, 128, k=k, iters=sk.n_iter_)
 print(time.time() - t)
 
+max_true_label = 10
 
 for test in range(k.shape[0]):
         print "Test: {}, k={}".format(test, k[test])
@@ -37,7 +40,7 @@ for test in range(k.shape[0]):
 		if not total:
 			continue
 		elems = []
-		for j in range(10):
+		for j in range(max_true_label):
 			mm = np.where(local == j)
 			perc = mm[0].shape[0] / float(total)
 			elems.append((j, perc, mm[0].shape[0]))

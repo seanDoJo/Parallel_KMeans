@@ -111,48 +111,48 @@ def EPKMeans(dta, ctr, k=None, iters=300, tpb=32, update_t=512, update_b=16):
     bpg = (N / tpb) + 1
 
     # Store the data as a 1-dimensional array
-    dh = np.squeeze(np.asarray(dta.reshape((1, dta.shape[0]*dta.shape[1]))))
+    data_host = np.squeeze(np.asarray(dta.reshape((1, dta.shape[0]*dta.shape[1]))))
 
     # Store the data cluster assignments as a 1-dimensional array
-    ah = np.zeros((N, k.shape[0]), dtype=np.int32)
-    ah = np.squeeze(np.asarray(ah.reshape((1, N*k.shape[0]))))
+    assignments_host = np.zeros((N, k.shape[0]), dtype=np.int32)
+    assignments_host = np.squeeze(np.asarray(assignments_host.reshape((1, N*k.shape[0]))))
 
     # Centroid array stored as [[x, y, z, ... , number of points assigned to centroid], ...]
-    mk = k[np.argmax(k)]
-    ch = []
+    maximum_k = k[np.argmax(k)]
+    centroids_host = []
     for ki in k:
-        ch.append(initCentroids(mk, ctr, 1.5, dim))
-    ch = np.array(ch)
-    w = ch.shape[1]
-    ch = ch.reshape((mk*(dim+1)*k.shape[0]))
+        centroids_host.append(initCentroids(maximum_k, ctr, 1.5, dim))
+    centroids_host = np.array(centroids_host)
+    width = centroids_host.shape[1]
+    centroids_host = centroids_host.reshape((maximum_k*(dim+1)*k.shape[0]))
 
 
-    smsize = ch.dtype.itemsize * dim
+    smsize = centroids_host.dtype.itemsize * dim
 
-    dd = cuda.to_device(dh)
-    cd = cuda.to_device(ch)
-    ad = cuda.to_device(ah)
-    kd = cuda.to_device(k)
+    data_device = cuda.to_device(data_host)
+    centroids_device = cuda.to_device(centroids_host)
+    assignments_device = cuda.to_device(assignments_host)
+    k_device = cuda.to_device(k)
 
-    avg_threads = mk / 2
-    zero_blocks = (ch.shape[0] / 32) + 1
+    avg_threads = maximum_k / 2
+    zero_blocks = (centroids_host.shape[0] / 32) + 1
 
 
     for i in range(iters):
-        closest[bpg, tpb, 0, smsize](dd, ad, cd, kd, N, dim, k.shape[0], w)
+        closest[bpg, tpb, 0, smsize](data_device, assignments_device, centroids_device, k_device, N, dim, k.shape[0], width)
 
-        zero[zero_blocks, 32, 0](dd, ad, cd, kd, N, dim, k.shape[0], w)
+        zero[zero_blocks, 32, 0](data_device, assignments_device, centroids_device, k_device, N, dim, k.shape[0], width)
 
-        update_sum[update_b, update_t, 0](dd, ad, cd, kd, N, dim, k.shape[0], w)
+        update_sum[update_b, update_t, 0](data_device, assignments_device, centroids_device, k_device, N, dim, k.shape[0], width)
 
-        update_avg[3, avg_threads, 0](dd, ad, cd, kd, N, dim, k.shape[0], w)
+        update_avg[3, avg_threads, 0](data_device, assignments_device, centroids_device, k_device, N, dim, k.shape[0], width)
 
 
     cuda.synchronize()
 
-    ad.copy_to_host(ah)
-    cd.copy_to_host(ch)
-    ch = ch.reshape((k.shape[0], mk, (dim+1)))
-    ah = ah.reshape((k.shape[0], N))
+    assignments_device.copy_to_host(assignments_host)
+    centroids_device.copy_to_host(centroids_host)
+    centroids_host = centroids_host.reshape((k.shape[0], maximum_k, (dim+1)))
+    assignments_host = assignments_host.reshape((k.shape[0], N))
 
-    return (ah, ch)
+    return (assignments_host, centroids_host)
