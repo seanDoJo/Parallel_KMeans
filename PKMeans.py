@@ -182,7 +182,6 @@ def PKMeans(dta, ctr, k=8, iters=300, tpb=32, update_t=512, update_b=16, shared=
     # Centroid array stored as [[x, y, z, ... , number of points assigned to centroid], ...]
     ch = initCentroids(k, ctr, 1.5, dim)
     smsize = ch.dtype.itemsize * dim
-    print smsize
 
     # Store the data cluster assignments as a 1-dimensional array
     ah = np.zeros(N, dtype=np.int32)
@@ -251,7 +250,6 @@ def PKMeans(dta, ctr, k=8, iters=300, tpb=32, update_t=512, update_b=16, shared=
     cd.copy_to_host(ch)
     t2 = (time.time() - t2)
 
-    print t1+t2
 
     tt = float(ct + zt + ust + uat)
 
