@@ -43,7 +43,7 @@ for test in range(k.shape[0]):
 			elems.append((j, perc, mm[0].shape[0]))
 		elems.sort(key=lambda x: x[2], reverse=True)
 		for l,p,c in elems:
-			print "\t\t{}: {}, {}".format(l, p, c)
+			print "\t\t{}: {}, {} {}'s belong to this cluster".format(l, p, c, l)
 		print ""
 
 # For Debugging
