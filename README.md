@@ -12,6 +12,12 @@ A Numba Cuda Implementation of KMeans Clustering
 
 - KMeans.py: A naive implementation of KMeans in numpy
 
+All testing code is prefixed with test_
+
+For displaying the results of some test code, move the output to the data directory and run the corresponding show_ function
+
+
+
 
 For calling parallel KMeans, refer to mnist_clustering.py or the documentation included in PKMeans.py
 
@@ -21,12 +27,12 @@ from PKMeans import PKMeans
 
 ...
 
-# data is a (number-of-samples, data-dimensionality) numpy matrix
-# center is a reference centerpoint for generating random centroids
-# k is your chosen k
-# iters is number of iterations to perform
+// data is a (number-of-samples, data-dimensionality) numpy matrix
+// center is a reference centerpoint for generating random centroids
+// k is your chosen k
+// iters is number of iterations to perform
 
 assignments, centroids = PKMeans(data, center, k=k, iters=iters)
 
-# assignments will be a (number-of-samples) vector of cluster assignments
-# centroids will be a (k, data-dimensionality) matrix of centroids
+// assignments will be a (number-of-samples) vector of cluster assignments
+// centroids will be a (k, data-dimensionality) matrix of centroids
